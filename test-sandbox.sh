@@ -105,6 +105,15 @@ const claims = {
   exp: now + numberEnv('EXECUTION_MANIFEST_TTL_SECONDS', 300),
   principal_source: 'local_sandbox_smoke',
 };
+
+// Hardened sandboxes require the manifest to cover the complete request
+// body. Keep this helper byte-for-byte compatible with the API's canonical
+// JSON implementation, excluding only the manifest field itself.
+const requestBodyForDigest = { ...payload };
+delete requestBodyForDigest.execution_manifest;
+claims.execute_body_sha256 = crypto.createHash('sha256')
+  .update(canonicalJson(requestBodyForDigest), 'utf8')
+  .digest('base64url');
 const manifestPayload = canonicalJson(claims);
 const rawPrivateKey = process.env.CODEAPI_EXECUTION_MANIFEST_PRIVATE_KEY.trim().replace(/\\n/g, '\n');
 const key = rawPrivateKey.includes('BEGIN ')

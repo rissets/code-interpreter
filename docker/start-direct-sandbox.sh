@@ -3,10 +3,21 @@
 echo "Starting Sandbox (direct NsJail, no microVM) on port 2000..."
 
 ROOTFS="${SANDBOX_ROOTFS:-/sandbox-rootfs}"
+# Keep the mount binary outside the directories that are replaced by the
+# sandbox bind-mounts below.  Resolving `mount` through /usr/sbin after the
+# first bind makes the command disappear from the mount namespace on Debian
+# (where /bin is a symlink into /usr/bin).
+# Copy it to /tmp before entering the namespace.  The bind mounts replace
+# system directories (and `/bin` may be a symlink into `/usr/bin`), so keeping
+# an independent executable avoids losing the helper mid-setup.
+MOUNT_BIN=/tmp/bpai-mount
+cp /bin/mount "$MOUNT_BIN"
+chmod 0755 "$MOUNT_BIN"
+export MOUNT_BIN
 
 mkdir -p /sandbox_api /pkgs
 
-if mount -o remount,rw /sys/fs/cgroup 2>/dev/null; then
+if "$MOUNT_BIN" -o remount,rw /sys/fs/cgroup 2>/dev/null; then
     echo "[sandbox] Remounted cgroupfs as rw"
 else
     echo "[sandbox] WARNING: could not remount cgroupfs rw - NsJail cgroup isolation may fail"
@@ -48,24 +59,37 @@ export SANDBOX_ROOTFS="$ROOTFS"
 exec unshare --mount bash -c '
     ROOTFS="${SANDBOX_ROOTFS:-/sandbox-rootfs}"
 
-    mount -o bind,ro "$ROOTFS/usr/sbin"     /usr/sbin    || { echo "FATAL: cannot bind /usr/sbin"; exit 1; }
-    mount -o bind,ro "$ROOTFS/usr/lib"      /usr/lib     || { echo "FATAL: cannot bind /usr/lib"; exit 1; }
+    # Debian/Ubuntu images use merged-/usr where /usr/sbin is a symlink to
+    # /usr/bin.  mount(8) follows that symlink and would unexpectedly hide
+    # /usr/bin (including the mount helper itself), so leave the host merged
+    # path intact in that case.  NsJail still receives the isolated /usr/bin
+    # mount below.
+    if [ -L /usr/sbin ]; then
+        echo "[sandbox] Skipping /usr/sbin bind (merged-/usr symlink)"
+    else
+        "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/sbin" /usr/sbin || { echo "FATAL: cannot bind /usr/sbin"; exit 1; }
+    fi
+    "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/lib"      /usr/lib     || { echo "FATAL: cannot bind /usr/lib"; exit 1; }
 
     if [ -d "$ROOTFS/usr/lib64" ] && ! [ -L "$ROOTFS/usr/lib64" ]; then
-        mount -o bind,ro "$ROOTFS/usr/lib64" /usr/lib64 2>/dev/null || \
+        "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/lib64" /usr/lib64 2>/dev/null || \
             echo "[sandbox] WARNING: could not bind /usr/lib64 - sandboxed binaries may fail to exec"
     fi
 
-    mount -o bind,ro "$ROOTFS/usr/local"    /usr/local   || { echo "FATAL: cannot bind /usr/local"; exit 1; }
-    mount -o bind,ro "$ROOTFS/sandbox_api"  /sandbox_api || { echo "FATAL: cannot bind /sandbox_api"; exit 1; }
-    mount -o bind,ro "$ROOTFS/pkgs"       /pkgs      || { echo "FATAL: cannot bind /pkgs"; exit 1; }
+    "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/local"    /usr/local   || { echo "FATAL: cannot bind /usr/local"; exit 1; }
+    "$MOUNT_BIN" -o bind,ro "$ROOTFS/sandbox_api"  /sandbox_api || { echo "FATAL: cannot bind /sandbox_api"; exit 1; }
+    "$MOUNT_BIN" -o bind,ro "$ROOTFS/pkgs"       /pkgs      || { echo "FATAL: cannot bind /pkgs"; exit 1; }
 
-    if [ -d /host-packages ]; then
-        mount --bind /host-packages /pkgs 2>/dev/null || \
+    # Legacy direct images may receive a runtime package volume here.  Baked
+    # images already contain the complete catalog in $ROOTFS/pkgs; mounting
+    # an empty compatibility directory over it would make every runtime
+    # appear as "unknown".
+    if [ "${SANDBOX_PACKAGES_BAKED:-false}" != "true" ] && [ -d /host-packages ]; then
+        "$MOUNT_BIN" --bind /host-packages /pkgs 2>/dev/null || \
             echo "WARNING: could not bind /host-packages - sandbox will run without packages"
     fi
 
-    mount -o bind,ro "$ROOTFS/usr/bin" /usr/bin || { echo "FATAL: cannot bind /usr/bin"; exit 1; }
+    "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/bin" /usr/bin || { echo "FATAL: cannot bind /usr/bin"; exit 1; }
 
     multiarch_libdir=$(find /usr/lib -maxdepth 1 -type d -name "*-linux-gnu" -print -quit)
     if [ -n "$multiarch_libdir" ]; then

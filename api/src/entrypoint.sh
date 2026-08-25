@@ -23,6 +23,23 @@ raise_nofile -Sn
 SANDBOX_USE_CGROUPV2="${SANDBOX_USE_CGROUPV2:-true}"
 SANDBOX_REMOVE_UMOUNT_AFTER_STARTUP="${SANDBOX_REMOVE_UMOUNT_AFTER_STARTUP:-true}"
 NSJAIL_CONFIG_SOURCE="${NSJAIL_CONFIG:-/sandbox_api/config/sandbox.cfg}"
+# In the no-KVM runner the host image is Fedora and uses merged-/usr, while
+# NsJail is intentionally kept inside the isolated Debian rootfs.  The
+# direct launcher therefore cannot rely on /usr/sbin/nsjail being visible
+# until the rootfs mounts have been applied.  Prefer the normal path (KVM
+# guest and legacy images), then fall back to the packaged rootfs binary.
+if [ ! -x /usr/sbin/nsjail ] && [ -x /sandbox-rootfs/usr/sbin/nsjail ]; then
+    NSJAIL_BIN=/sandbox-rootfs/usr/sbin/nsjail
+else
+    NSJAIL_BIN=/usr/sbin/nsjail
+fi
+# The smoke test and the API worker must use the same binary.  In direct
+# (no-KVM) mode `/usr/sbin` is a merged-/usr path and is intentionally not
+# bind-mounted; leaving the selected fallback only in `NSJAIL_BIN` made the
+# smoke probe pass while the request worker later reverted to the missing
+# default `/usr/sbin/nsjail` and returned 502.  Export the resolved path so
+# config.ts applies it to every request-time spawn as well.
+export NSJAIL_PATH="$NSJAIL_BIN"
 
 # Mount tmpfs on /tmp for fast, memory-backed file I/O.
 # On the KVM path, /tmp is on virtiofs-backed rootfs which has rename() quirks.
@@ -177,7 +194,7 @@ if [ "$SANDBOX_USE_CGROUPV2" = "true" ]; then
     NSJAIL_CGROUP_ARGS=(--use_cgroupv2)
 fi
 
-if timeout 10 /usr/sbin/nsjail --config "${NSJAIL_CONFIG:-/sandbox_api/config/sandbox.cfg}" \
+if timeout 10 "$NSJAIL_BIN" --config "${NSJAIL_CONFIG:-/sandbox_api/config/sandbox.cfg}" \
     "${NSJAIL_CGROUP_ARGS[@]}" --log "$SMOKE_LOG" \
     --user "65534:${SMOKE_OUTSIDE_UID}:1" --group "65534:${SMOKE_OUTSIDE_GID}:1" \
     -s /usr/bin:/bin -s /usr/lib:/lib -s /usr/lib64:/lib64 \

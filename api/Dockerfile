@@ -193,6 +193,7 @@ RUN cargo build --release
 #   - sandbox-runner-base : everything except the guest rootfs copy
 #   - sandbox-runner      : legacy/direct target; copies rootfs without
 #                           packages (packages come from a runtime PVC mount)
+#   - sandbox-runner-direct-baked: direct NsJail target with /pkgs included
 #   - sandbox-runner-baked: copies rootfs AND bakes /pkgs from package-builder
 #                           (no PVC needed; runner can spread across nodes)
 #   - sandbox-runner-{true,false}: Compose aliases selected by KVM_ENABLED
@@ -255,6 +256,21 @@ COPY --from=sandbox-build / /sandbox-rootfs/
 RUN sed -i '/^cgroup_mem_swap_max/d' /sandbox-rootfs/sandbox_api/config/sandbox.cfg
 
 RUN mkdir -p /host-packages
+
+# Direct NsJail deployments (KVM_ENABLED=false) cannot read the ext4 disk
+# used by the microVM runner. Keep a dedicated direct image that carries the
+# same package tree in its directory rootfs. Without this, /pkgs is empty and
+# every execute request is rejected as an unknown runtime.
+FROM sandbox-runner AS sandbox-runner-direct-baked
+
+COPY --from=sandbox-rootfs-image /sandbox-rootfs/pkgs /sandbox-rootfs/pkgs
+
+RUN mkdir -p /host-packages
+
+# The direct image carries its runtime catalog in the rootfs.  Keep the
+# legacy compatibility directory for image/layout parity, but mark it so the
+# direct entrypoint never overlays the baked package tree with an empty mount.
+ENV SANDBOX_PACKAGES_BAKED=true
 
 # Compose derives these aliases from KVM_ENABLED so existing no-KVM overrides
 # keep selecting the directory-root image automatically.
