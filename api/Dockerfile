@@ -249,7 +249,32 @@ ENV LAUNCHER_ROOT_DISK=/sandbox-rootfs.img \
     LAUNCHER_ROOT_FSTYPE=ext4 \
     LAUNCHER_ROOT_OPTIONS=ro
 
-FROM sandbox-runner-base AS sandbox-runner
+# Direct NsJail uses bind mounts to make the guest root filesystem visible.
+# Keep the runner on the same Debian family as that guest rootfs; mounting a
+# Debian /usr/lib over a Fedora runner makes already-running mount/bash
+# processes load incompatible shared libraries and crash on Docker Desktop.
+FROM debian:bookworm AS sandbox-runner-direct-base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    coreutils \
+    curl \
+    findutils \
+    gawk \
+    procps \
+    util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY docker/start-direct-sandbox.sh /usr/local/bin/start-direct-sandbox.sh
+COPY docker/sandbox-runner-healthcheck.sh /usr/local/bin/sandbox-runner-healthcheck.sh
+COPY docker/sandbox-entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/start-direct-sandbox.sh /usr/local/bin/sandbox-runner-healthcheck.sh /usr/local/bin/entrypoint.sh
+
+EXPOSE 2000/tcp
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+FROM sandbox-runner-direct-base AS sandbox-runner
 
 COPY --from=sandbox-build / /sandbox-rootfs/
 

@@ -69,13 +69,9 @@ exec unshare --mount bash -c '
     else
         "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/sbin" /usr/sbin || { echo "FATAL: cannot bind /usr/sbin"; exit 1; }
     fi
-    "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/lib"      /usr/lib     || { echo "FATAL: cannot bind /usr/lib"; exit 1; }
-
-    if [ -d "$ROOTFS/usr/lib64" ] && ! [ -L "$ROOTFS/usr/lib64" ]; then
-        "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/lib64" /usr/lib64 2>/dev/null || \
-            echo "[sandbox] WARNING: could not bind /usr/lib64 - sandboxed binaries may fail to exec"
-    fi
-
+    # The runner is Fedora while ROOTFS is Debian.  Do not replace /usr/lib
+    # before all host mount(8) calls have completed: mount is dynamically
+    # linked and would otherwise load incompatible libraries mid-setup.
     "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/local"    /usr/local   || { echo "FATAL: cannot bind /usr/local"; exit 1; }
     "$MOUNT_BIN" -o bind,ro "$ROOTFS/sandbox_api"  /sandbox_api || { echo "FATAL: cannot bind /sandbox_api"; exit 1; }
     "$MOUNT_BIN" -o bind,ro "$ROOTFS/pkgs"       /pkgs      || { echo "FATAL: cannot bind /pkgs"; exit 1; }
@@ -90,6 +86,11 @@ exec unshare --mount bash -c '
     fi
 
     "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/bin" /usr/bin || { echo "FATAL: cannot bind /usr/bin"; exit 1; }
+    "$MOUNT_BIN" -o bind,ro "$ROOTFS/usr/lib" /usr/lib || { echo "FATAL: cannot bind /usr/lib"; exit 1; }
+
+    if [ -d "$ROOTFS/usr/lib64" ] && ! [ -L "$ROOTFS/usr/lib64" ]; then
+        echo "[sandbox] NOTE: ROOTFS has a separate /usr/lib64; it is not mounted in direct mode to preserve the running mount helper"
+    fi
 
     multiarch_libdir=$(find /usr/lib -maxdepth 1 -type d -name "*-linux-gnu" -print -quit)
     if [ -n "$multiarch_libdir" ]; then
