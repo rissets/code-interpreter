@@ -26,6 +26,17 @@ app.use(traceHttpRequest('codeapi.file_server.request'));
 app.use(httpMetricsMiddleware);
 
 const bucketName = process.env.MINIO_BUCKET ?? 'test-bucket';
+/**
+ * Some S3-compatible object stores support ordinary PutObject but not the
+ * multipart-upload API used by the MinIO SDK when a stream has no declared
+ * length. The code API caps inbound objects below this value, so a bounded
+ * single-PUT fallback is safer than making a recoverable chat fail.
+ */
+const singlePutMaxBytes = Math.max(
+  1,
+  Number.parseInt(process.env.CODEAPI_SINGLE_PUT_MAX_BYTES ?? String(25 * 1024 * 1024), 10) ||
+    25 * 1024 * 1024,
+);
 
 type IamProviderModule = { IamAwsProvider?: new (opts: object) => unknown; default?: new (opts: object) => unknown };
 
@@ -224,6 +235,31 @@ function peekStreamForEmpty(input: Readable): Promise<{ empty: true } | { empty:
   });
 }
 
+function parseContentLength(value: string | string[] | undefined): number | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw == null || raw.trim() === '') {
+    return undefined;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+async function bufferForSinglePut(input: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of input) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > singlePutMaxBytes) {
+      throw new Error(
+        `File exceeds the ${singlePutMaxBytes}-byte single-upload limit configured for this storage provider`,
+      );
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks, size);
+}
+
 async function uploadFile(
   session_id: string,
   fileStream: Readable,
@@ -231,6 +267,7 @@ async function uploadFile(
   mimetype: string,
   existingFileId?: string,
   readOnly = false,
+  contentLength?: number,
 ): Promise<t.UploadResult> {
   const fileId = existingFileId ?? nanoid();
   const fileExtension = path.extname(filename);
@@ -259,8 +296,21 @@ async function uploadFile(
     /* Empty file: explicit single PUT with size=0 — multipart fails with
      * "You must specify at least one part" on zero-byte streams. */
     await minioClient.putObject(bucketName, objectName, Buffer.alloc(0), 0, metaData);
+  } else if (contentLength != null) {
+    if (contentLength > singlePutMaxBytes) {
+      throw new Error(
+        `File exceeds the ${singlePutMaxBytes}-byte single-upload limit configured for this storage provider`,
+      );
+    }
+    /* A declared length makes MinIO issue a plain PutObject instead of
+     * initiating multipart upload. This supports S3-compatible providers
+     * that intentionally do not implement multipart APIs. */
+    await minioClient.putObject(bucketName, objectName, peeked.body, contentLength, metaData);
   } else {
-    await minioClient.putObject(bucketName, objectName, peeked.body, undefined, metaData);
+    /* Busboy parts have no individual Content-Length. Keep the fallback
+     * bounded and use a single PUT rather than starting multipart upload. */
+    const content = await bufferForSinglePut(peeked.body);
+    await minioClient.putObject(bucketName, objectName, content, content.length, metaData);
   }
   logger.info(`[${INSTANCE_ID}] File ID: ${fileId} | Filename: ${filename} | Session key: ${sessionKey}`);
   await redisClient.set(`upload:${sessionKey}${session_id}${fileId}`, 'true', 'EX', env.SESSION_CACHE_TTL);
@@ -415,7 +465,15 @@ app.put('/sessions/:session_id/objects/:fileId', async (req: express.Request, re
   }
 
   try {
-    const result = await uploadFile(session_id, req, decodedFilename, mimeType, fileId, readOnly);
+    const result = await uploadFile(
+      session_id,
+      req,
+      decodedFilename,
+      mimeType,
+      fileId,
+      readOnly,
+      parseContentLength(req.headers['content-length']),
+    );
     logger.info(`[${INSTANCE_ID}] File uploaded successfully: ${result.filename}`);
     return res.status(200).json(result);
   } catch (err) {
