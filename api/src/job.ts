@@ -295,6 +295,10 @@ const MIME_TYPE_BY_EXTENSION: ReadonlyMap<string, string> = new Map([
   ['.css', 'text/css'],
   ['.xml', 'application/xml'],
   ['.json', 'application/json'],
+  ['.geojson', 'application/geo+json'],
+  ['.db', 'application/vnd.sqlite3'],
+  ['.sqlite', 'application/vnd.sqlite3'],
+  ['.sqlite3', 'application/vnd.sqlite3'],
   ['.jsonl', 'application/x-ndjson'],
   ['.yaml', 'application/yaml'],
   ['.yml', 'application/yaml'],
@@ -538,6 +542,7 @@ const SUPPORTED_EXTENSIONS = new Set([
   '.css', '.htm', '.html', '.less', '.sass', '.scss', '.svg', '.svelte', '.vue',
   '.adoc', '.asciidoc', '.md', '.rst', '.tex', '.txt', '.wiki',
   '.csv', '.json', '.bson', '.json5', '.jsonl', '.parquet', '.tsv',
+  '.geojson', '.db', '.sqlite', '.sqlite3',
   '.xml', '.yaml', '.yml',
   '.ics', '.ical', '.ifb', '.icalendar',
   '.conf', '.env', '.gitignore', '.ini', '.properties', '.toml',
@@ -2690,7 +2695,11 @@ export class Job {
       });
 
       if (!response.ok) {
-        throw new Error(`Upload HTTP error: ${response.status}`);
+        const failure = await response.json().catch(() => null) as { error?: unknown } | null;
+        const detail = typeof failure?.error === 'string'
+          ? ` (${failure.error.slice(0, 200)})`
+          : '';
+        throw new Error(`Upload HTTP error: ${response.status}${detail}`);
       }
       this.log.debug({ file: file.name, id: file.id, size }, 'Uploaded file');
       return file.id;

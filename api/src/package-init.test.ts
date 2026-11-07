@@ -70,6 +70,7 @@ for (const oldRuntimeExists of [false, true]) {
             const python = path.join(packages, 'python/3.14.4');
             for (const name of [
                 'PIL',
+                'pypdf',
                 'markitdown',
                 'chdb',
                 'statsmodels',

@@ -997,6 +997,26 @@ describe('egress gateway routes', () => {
     expect(upstreamCalls).toHaveLength(3);
   });
 
+  test('allows SQLite and GeoJSON outputs through the same scoped upload grant', async () => {
+    const writeSession = sessionHandle({ dir: 'write', sessionId: 'sess_output' });
+    const names = ['analysis.db', 'audit.sqlite', 'data.sqlite3', 'parcel.geojson'];
+    for (const [index, name] of names.entries()) {
+      upstreamResponse = new Response('ok', { status: 200 });
+      const response = await gatewayFetch(`/sessions/${writeSession}/objects/abcdefghijklmnopqrst${index}`, {
+        method: 'PUT',
+        headers: {
+          ...grantHeader(),
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': '3',
+          'X-Original-Filename': name,
+        },
+        body: 'abc',
+      });
+      expect(response.status).toBe(200);
+    }
+    expect(upstreamCalls).toHaveLength(4);
+  });
+
   test('uploads scoped output files with injected internal credentials', async () => {
     upstreamResponse = Response.json({ id: 'abcdefghijklmnopqrstu' }, { status: 201 });
     const writeSession = sessionHandle({ dir: 'write', sessionId: 'sess_output' });

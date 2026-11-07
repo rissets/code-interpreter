@@ -117,6 +117,17 @@ function buildInputByName(files: TFile[]): Map<string, TFile> {
 }
 
 describe('walkDir / empty-directory detection', () => {
+  it('retains generated SQLite and GeoJSON artifacts for subsequent stateless calls', async () => {
+    for (const name of ['analysis.db', 'audit.sqlite', 'data.sqlite3', 'parcel.geojson']) {
+      await fsp.writeFile(path.join(tmpDir, name), 'fixture');
+    }
+    const internals = asInternals(makeJob());
+    internals.submissionDir = tmpDir;
+    await internals.walkDir(tmpDir, 0, new Map());
+    expect(internals.generatedFiles.map(file => file.name).sort()).toEqual(
+      ['analysis.db', 'audit.sqlite', 'data.sqlite3', 'parcel.geojson'].sort(),
+    );
+  });
   it('creates a .dirkeep marker for a genuinely empty subdirectory', async () => {
     await fsp.mkdir(path.join(tmpDir, 'empty'));
 

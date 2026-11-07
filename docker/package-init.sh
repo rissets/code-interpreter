@@ -90,6 +90,7 @@ packages_ready() {
     [ -f "/pkgs/python/${PYTHON_VERSION}/lib/python${PYTHON_SITE_VERSION}/.sandbox-pipe-runtime-v1" ] &&
     [ -f "/pkgs/python/${PYTHON_VERSION}/.package-installed" ] &&
     [ -d "/pkgs/python/${PYTHON_VERSION}/lib/python${PYTHON_SITE_VERSION}/site-packages/PIL" ] &&
+    [ -d "/pkgs/python/${PYTHON_VERSION}/lib/python${PYTHON_SITE_VERSION}/site-packages/pypdf" ] &&
     [ -d "/pkgs/python/${PYTHON_VERSION}/lib/python${PYTHON_SITE_VERSION}/site-packages/markitdown" ] &&
     [ -d "/pkgs/python/${PYTHON_VERSION}/lib/python${PYTHON_SITE_VERSION}/site-packages/chdb" ] &&
     [ -d "/pkgs/python/${PYTHON_VERSION}/lib/python${PYTHON_SITE_VERSION}/site-packages/statsmodels" ] &&
@@ -278,6 +279,7 @@ if [ -f "$PIP_PATH" ]; then
         pdf2image \
         "pdfminer.six" \
         reportlab \
+        pypdf==6.21.2 \
         opencv-python-headless \
         svglib \
         cairosvg \

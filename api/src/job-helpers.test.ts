@@ -58,6 +58,12 @@ describe('resolveInputDestination', () => {
 });
 
 describe('mimeTypeFor', () => {
+  it('labels generated databases and spatial artifacts for file restoration', () => {
+    expect(mimeTypeFor('analysis.db')).toBe('application/vnd.sqlite3');
+    expect(mimeTypeFor('audit.SQLITE')).toBe('application/vnd.sqlite3');
+    expect(mimeTypeFor('data.sqlite3')).toBe('application/vnd.sqlite3');
+    expect(mimeTypeFor('parcel.geojson')).toBe('application/geo+json');
+  });
   it('returns the registered MIME for image extensions', () => {
     expect(mimeTypeFor('plot.png')).toBe('image/png');
     expect(mimeTypeFor('photo.jpg')).toBe('image/jpeg');
