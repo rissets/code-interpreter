@@ -211,7 +211,6 @@ install_python_packages() {
         qrcode \
         fonttools \
         pytesseract \
-        pdfminer \
         vsdx \
         rasterio \
         rioxarray \

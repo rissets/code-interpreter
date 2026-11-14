@@ -289,7 +289,6 @@ if [ -f "$PIP_PATH" ]; then
         qrcode \
         fonttools \
         pytesseract \
-        pdfminer \
         vsdx \
         rasterio \
         rioxarray \
